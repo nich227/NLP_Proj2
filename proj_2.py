@@ -17,7 +17,6 @@ from nltk.stem import WordNetLemmatizer
 from nltk.corpus import wordnet
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import OneHotEncoder
-from sklearn import naive_bayes
 from sklearn import svm
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
@@ -31,7 +30,6 @@ nltk.download('wordnet', quiet=True)
 class Token:
     def __init__(self):
         self.token = ""
-        self.position = 0
         self.sentence = ""
         self.lemma = ""
         self.post = ""
@@ -40,19 +38,16 @@ class Token:
 
     def __init__(self, token, tag):
         self.token = token
-        self.position = 0
         self.sentence = ""
         self.lemma = ""
         self.post = ""
         self.representation = []
         self.tag = tag
 
-    def __str__(self):
-        return "Token: " + str(self.token) + "\nPosition: " + str(self.position) + "\nSentence: " + str(self.sentence) + "\nLemma: " + self.lemma + "\nPOS Tag: " + self.post + "\nRepresentation: " + str(self.representation) + "\nTag: " + str(self.tag)
-
-
 # Reading in an input file to extract sentences, tokens and NER tags
-def read_file(fileName, known_tokens=[], is_test=False):
+
+
+def read_file(fileName):
 
     # Opening the file
     with open(fileName, 'r') as file:
@@ -76,21 +71,18 @@ def read_file(fileName, known_tokens=[], is_test=False):
             # This is a token and tag tuple (token, tag identifier)
             if token_re.match(line):
 
-                # Handle out of vocabulary words for test data
-                if is_test == True and line.casefold().split('\t')[0] not in known_tokens:
-                    line = "UNK\tUNK"
-
                 # Add new tag to known tags
                 if line.split('\t')[1] not in [tuple[1] for tuple in list(tag_dict.items())]:
                     tag_dict.update({cur_tag_key: line.split('\t')[1]})
                     cur_tag_key += 1
 
                 # Add token to list of tokens
-                token_tmp.append(Token(line.casefold().split('\t')[0], list(tag_dict.keys())[
-                                 list(tag_dict.values()).index(line.split('\t')[1])]))
+                new_token = Token(line.casefold().split('\t')[0], list(tag_dict.keys())[
+                    list(tag_dict.values()).index(line.split('\t')[1])])
+                token_tmp.append(new_token)
 
                 # Add token to the sentence
-                token_sentence.append(line.casefold().split('\t')[0])
+                token_sentence.append(new_token.token)
 
             # End of sentence (and previous line had a token)
             if(line == "") and token_re.match(prev_line):
@@ -114,7 +106,10 @@ def read_file(fileName, known_tokens=[], is_test=False):
 # Get POS tags, adds corresponding POS tags and one-hot vector for POS tags
 
 
-def pos_process(token_list):
+def pos_process(token_list, post_list=[], is_test=False):
+
+    # POS tag list (for train)
+    train_post = post_list
 
     # Iterate through all sentences within the tokens
     cur = 0
@@ -124,39 +119,53 @@ def pos_process(token_list):
         # Put POS tags into all tokens within this sentence
         for pos in [pos[1] for pos in pos_sentence]:
             token_list[cur].post = pos
+
+            # Found a train POS tag that's not in the list of tags
+            if is_test == False and pos not in train_post:
+                train_post.append(pos)
+
+            # Found a test POS tag that's not in the train
+            if is_test == True and pos not in post_list:
+                token_list[cur].post = "UNK"
+
             cur += 1
 
     # Create one-hot vector for each token
-    label_encoder = LabelEncoder()
-    onehot_encoder = OneHotEncoder(sparse=False, dtype=np.uint8)
-    integer_encoded = label_encoder.fit_transform(
-        np.array([token.post for token in token_list]))
-    integer_encoded = integer_encoded.reshape(len(integer_encoded), 1)
-    onehot_encoded = onehot_encoder.fit_transform(integer_encoded)
+    onehot_encoded = []
+    for pos in [token.post for token in token_list]:
+        onehot = np.zeros(len(train_post)+1, dtype=np.uint8)
+
+        # If the POS tag is within the train POS tag list
+        if is_test == False or pos in train_post:
+            onehot[train_post.index(pos)] = 1
+        else:
+            onehot[-1] = 1
+
+        # Add this one hot encoded vector to the list of one-hot encoded vectors
+        onehot_encoded.append(onehot)
 
     # Put all one hot encoded vectors with their respective token
     for onehot, token in zip(onehot_encoded, token_list):
         token.representation = onehot
 
+    return train_post if is_test == False else None
+
 # Get lemmas, adds corresponding lemma and append one-hot vector for lemma and returns the train vocabulary (if train)
 
 
-def lemma_process(token_list, is_test=False):
+def lemma_process(token_list, lemma_list=[], is_test=False):
 
     # Initialize lemmatizer
     lemmatizer = WordNetLemmatizer()
 
     # Train vocab with a list of lemmas (for train data only)
-    train_vocab = []
+    train_vocab = lemma_list
 
     # Convert all POS tags to WordNet tag
     wntag_list = []
     for token in token_list:
-        # Unknown token and is test
-        if is_test == True and token.token == "UNK":
-            token.lemma = "UNK"
         # Adjective
-        elif token.post.startswith('J'):
+        if token.post.startswith('J'):
             wntag_list.append(wordnet.ADJ)
         # Verb
         elif token.post.startswith('V'):
@@ -172,26 +181,33 @@ def lemma_process(token_list, is_test=False):
 
     # Get lemma for each WordNet tag
     for wn_tag, token in zip(wntag_list, token_list):
-
-        # Unknown token and is test
-        if is_test == True and token.token == "UNK":
-            continue
-
+        # No WordNet tag (just put original token as lemma)
         if wn_tag is None:
             token.lemma = token.token
         else:
             token.lemma = lemmatizer.lemmatize(token.token, wn_tag)
-            # Add new lemma to vocabulary
-            if token.lemma not in train_vocab:
-                train_vocab.append(token.lemma)
+
+        # Add new lemma to vocabulary (if train)
+        if is_test == False and token.lemma not in train_vocab:
+            train_vocab.append(token.lemma)
+
+        # Lemma is not in vocabulary (if test)
+        if is_test == True and token.lemma not in train_vocab:
+            token.lemma = "UNK"
 
     # Create one-hot vector for each token
-    label_encoder = LabelEncoder()
-    onehot_encoder = OneHotEncoder(sparse=False, dtype=np.uint8)
-    integer_encoded = label_encoder.fit_transform(
-        np.array([token.lemma for token in token_list]))
-    integer_encoded = integer_encoded.reshape(len(integer_encoded), 1)
-    onehot_encoded = onehot_encoder.fit_transform(integer_encoded)
+    onehot_encoded = []
+    for lemma in [token.lemma for token in token_list]:
+        onehot = np.zeros(len(train_vocab)+1, dtype=np.uint8)
+
+        # If the POS tag is within the train POS tag list
+        if is_test == False or lemma in train_vocab:
+            onehot[train_vocab.index(lemma)] = 1
+        else:
+            onehot[-1] = 1
+
+        # Add this one hot encoded vector to the list of one-hot encoded vectors
+        onehot_encoded.append(onehot)
 
     # Put all one hot encoded vectors with their respective token (append to existing POS one-hot)
     for onehot, token in zip(onehot_encoded, token_list):
@@ -211,7 +227,7 @@ if __name__ == "__main__":
     # Get sentences, tokens and tags for train data and get pos and lemma vectors
     train_token_list, train_tag_dict, train_num_sentences = read_file(
         "modified_train.txt")
-    pos_process(train_token_list)
+    train_post = pos_process(train_token_list)
     train_vocab = lemma_process(train_token_list)
 
     # Train SVM Model
@@ -222,12 +238,38 @@ if __name__ == "__main__":
     # Get sentences, tokens and tags for train data and get pos and lemma vectors
     test_token_list, test_tag_dict, test_num_sentences = read_file(
         "modified_test.txt")
-    pos_process(test_token_list)
-    lemma_process(test_token_list, True)
+    pos_process(test_token_list, train_post, True)
+    lemma_process(test_token_list, train_vocab, True)
 
     # Test SVM Model
     predictions = model.predict(
         [token.representation for token in test_token_list])
+
+    # Reverse the train tag dict
+    reverse_train_tag_dict = {}
+    for tag in train_tag_dict:
+        reverse_train_tag_dict.update({train_tag_dict[tag]: tag})
+
+    # Correct predictions (remove BIO tag violations)
+    entity_type = ""
+    for prediction in predictions:
+        tag = train_tag_dict[prediction]
+
+        # Look for B (beginning tag)
+        if "B-" in tag:
+            entity_type = tag.split("-")[1]
+
+        # Entity type for an I tag and there is no matching B tag
+        elif "I-" in tag and entity_type == "":
+            prediction = reverse_train_tag_dict["O"]
+
+        # Entity type for an I tag does not match B tag (change to the B-tag type)
+        elif "I-" in tag and tag.split("-")[1] != entity_type:
+            prediction = reverse_train_tag_dict["I-"+entity_type]
+
+        # If this is an O tag (resets entity_type)
+        elif tag == "O":
+            entity_type = ""
 
     # Report performance
     y_test = [token.tag for token in test_token_list]
