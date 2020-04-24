@@ -138,12 +138,16 @@ def pos_process(token_list):
     for onehot, token in zip(onehot_encoded, token_list):
         token.representation = onehot
 
-# Get lemmas, adds corresponding lemma and append one-hot vector for lemma
+# Get lemmas, adds corresponding lemma and append one-hot vector for lemma and returns the train vocabulary (if train)
 
 
 def lemma_process(token_list, is_test=False):
 
+    # Initialize lemmatizer
     lemmatizer = WordNetLemmatizer()
+
+    # Train vocab with a list of lemmas (for train data only)
+    train_vocab = []
 
     # Convert all POS tags to WordNet tag
     wntag_list = []
@@ -177,6 +181,9 @@ def lemma_process(token_list, is_test=False):
             token.lemma = token.token
         else:
             token.lemma = lemmatizer.lemmatize(token.token, wn_tag)
+            # Add new lemma to vocabulary
+            if token.lemma not in train_vocab:
+                train_vocab.append(token.lemma)
 
     # Create one-hot vector for each token
     label_encoder = LabelEncoder()
@@ -191,6 +198,8 @@ def lemma_process(token_list, is_test=False):
         token.representation = np.concatenate(
             (token.representation, onehot), axis=None)
 
+    return train_vocab if is_test == False else None
+
 
 # Driver of the program
 if __name__ == "__main__":
@@ -203,7 +212,7 @@ if __name__ == "__main__":
     train_token_list, train_tag_dict, train_num_sentences = read_file(
         "modified_train.txt")
     pos_process(train_token_list)
-    lemma_process(train_token_list)
+    train_vocab = lemma_process(train_token_list)
 
     # Train SVM Model
     model = svm.LinearSVC()
