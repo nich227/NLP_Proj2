@@ -20,6 +20,7 @@ This corpus follows the BIO notation for representing labels where B marks the b
     _Windows_
     ```bash
     pip install -r requirements.txt
+    ```
 
 3. To run, type in the command line interpreter:
 
