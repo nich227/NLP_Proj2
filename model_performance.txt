@@ -1,0 +1,9 @@
+---------------
+| Performance |
+---------------
+Accuracy score:  0.011539121482498284
+Precision score:  0.06435953047068364
+Recall score:  0.011539121482498284
+F1 score:  0.00884089282462825
+Throughput (time):  3.83 seconds
+Throughput (data):  99.082 kbps

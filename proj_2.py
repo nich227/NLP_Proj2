@@ -8,7 +8,6 @@ Version: Python 3.8.0
 '''
 
 import os
-import array
 import re
 import time
 import nltk
@@ -54,6 +53,7 @@ def read_file(fileName):
         token_re = re.compile("^.*\t.*$")
 
         token_list = []
+        unique_token_list = []
         cur_tag_key = 1
         tag_dict = {}
         num_sentences = 0
@@ -83,6 +83,10 @@ def read_file(fileName):
 
                 # Add token to the sentence
                 token_sentence.append(new_token.token)
+                
+                # New token has been found 
+                if new_token.token not in unique_token_list:
+                    unique_token_list.append(new_token.token)
 
             # End of sentence (and previous line had a token)
             if(line == "") and token_re.match(prev_line):
@@ -100,8 +104,8 @@ def read_file(fileName):
             # Note what the previous line was
             prev_line = line
 
-    # Return back tokens, tag encodings and sentence counts
-    return (token_list, tag_dict, num_sentences)
+    # Return back tokens, tag encodings, sentence counts and unique token list
+    return (token_list, tag_dict, num_sentences, unique_token_list)
 
 # Get POS tags, adds corresponding POS tags and one-hot vector for POS tags
 
@@ -225,7 +229,7 @@ if __name__ == "__main__":
     print()
 
     # Get sentences, tokens and tags for train data and get pos and lemma vectors
-    train_token_list, train_tag_dict, train_num_sentences = read_file(
+    train_token_list, train_tag_dict, train_num_sentences, train_unique_tokens = read_file(
         "modified_train.txt")
     train_post = pos_process(train_token_list)
     train_vocab = lemma_process(train_token_list)
@@ -235,27 +239,29 @@ if __name__ == "__main__":
     model.fit([token.representation for token in train_token_list],
               [token.tag for token in train_token_list])
 
-    # Get sentences, tokens and tags for train data and get pos and lemma vectors
-    test_token_list, test_tag_dict, test_num_sentences = read_file(
+    # Get sentences, tokens and tags for test data and get pos and lemma vectors
+    test_token_list, test_tag_dict, test_num_sentences, test_unique_tokens = read_file(
         "modified_test.txt")
     pos_process(test_token_list, train_post, True)
     lemma_process(test_token_list, train_vocab, True)
-
-    # Test SVM Model
-    predictions = model.predict(
-        [token.representation for token in test_token_list])
-
+    
     # Reverse the train tag dict
     reverse_train_tag_dict = {}
     for tag in train_tag_dict:
         reverse_train_tag_dict.update({train_tag_dict[tag]: tag})
 
+    
+    # Test SVM Model
+    predict_time = time.time()
+    predictions = model.predict(
+        [token.representation for token in test_token_list])
+    
     # Correct predictions (remove BIO tag violations)
     entity_type = ""
     i = 0
     for prediction in predictions:
         tag = train_tag_dict[prediction]
-        
+
         # If this is an O tag (resets entity_type)
         if tag == "O":
             entity_type = ""
@@ -264,7 +270,7 @@ if __name__ == "__main__":
         elif "B-" in tag:
             entity_type = tag.split("-")[1]
 
-        # Entity type for an I tag and there is no matching B tag
+        # Entity type for an I tag and there is no matching B tag (it should be a standalone B tag)
         elif "I-" in tag and entity_type == "":
             predictions[i] = reverse_train_tag_dict["B-"+tag.split("-")[1]]
 
@@ -273,6 +279,8 @@ if __name__ == "__main__":
             predictions[i] = reverse_train_tag_dict["I-"+entity_type]
 
         i += 1
+        
+    predict_time = time.time() - predict_time
 
     # Report performance
     y_test = [token.tag for token in test_token_list]
@@ -285,7 +293,10 @@ if __name__ == "__main__":
     print('Recall score: ', recall_score(
         y_test, predictions, average='weighted'))
     print('F1 score: ', f1_score(y_test, predictions, average='weighted'))
+    
+    print('Throughput (time): ', round(predict_time, 3), "seconds")
+    print('Throughput (data): ', round(os.path.getsize("modified_test.txt") / (predict_time * 1000.0), 3), "kbps")
 
     # End of program
     print('-----\n', 'Project 2 took', round(time.time() -
-                                             start_time, 4), 'seconds to complete.')
+                                             start_time, 3), 'seconds to complete.')
