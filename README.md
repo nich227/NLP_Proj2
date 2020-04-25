@@ -25,12 +25,12 @@ This corpus follows the BIO notation for representing labels where B marks the b
 
     _Linux or macOS_
     ```bash
-    python3 proj_1.py 
+    python3 proj_2.py 
     ```
 
     _Windows_
     ```bash
-    python proj_1.py
+    python proj_2.py
     ```
 
 **NOTE:** This application requires the use of a large amount of RAM, at least approx. 80 GB, to run properly. You have been warned.
