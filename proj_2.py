@@ -252,24 +252,27 @@ if __name__ == "__main__":
 
     # Correct predictions (remove BIO tag violations)
     entity_type = ""
+    i = 0
     for prediction in predictions:
         tag = train_tag_dict[prediction]
+        
+        # If this is an O tag (resets entity_type)
+        if tag == "O":
+            entity_type = ""
 
         # Look for B (beginning tag)
-        if "B-" in tag:
+        elif "B-" in tag:
             entity_type = tag.split("-")[1]
 
         # Entity type for an I tag and there is no matching B tag
         elif "I-" in tag and entity_type == "":
-            prediction = reverse_train_tag_dict["O"]
+            predictions[i] = reverse_train_tag_dict["B-"+tag.split("-")[1]]
 
         # Entity type for an I tag does not match B tag (change to the B-tag type)
         elif "I-" in tag and tag.split("-")[1] != entity_type:
-            prediction = reverse_train_tag_dict["I-"+entity_type]
+            predictions[i] = reverse_train_tag_dict["I-"+entity_type]
 
-        # If this is an O tag (resets entity_type)
-        elif tag == "O":
-            entity_type = ""
+        i += 1
 
     # Report performance
     y_test = [token.tag for token in test_token_list]
